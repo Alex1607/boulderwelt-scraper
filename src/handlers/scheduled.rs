@@ -14,9 +14,9 @@ pub async fn scheduled_handler(_event: ScheduledEvent, env: Env, cron: String) -
     // Track overall success
     let mut success_count = 0;
     
-    // Scrape all websites
+    // Fetch data for all websites
     for website in websites {
-        match scraper::fetch_website_data(&website).await {
+        match scraper::fetch_crowd_data(&website).await {
             Ok(data) => {
                 // Log the data in a structured format
                 console_log!(
@@ -45,10 +45,10 @@ pub async fn scheduled_handler(_event: ScheduledEvent, env: Env, cron: String) -
                 }
                 
                 // Log the full data for debugging
-                console_log!("Successfully scraped data for {}: {:?}", website.name, data);
+                console_log!("Successfully fetched data for {}: {:?}", website.name, data);
             },
             Err(e) => {
-                console_error!("Error scraping data for {}: {}", website.name, e);
+                console_error!("Error fetching data for {}: {}", website.name, e);
             }
         }
     }

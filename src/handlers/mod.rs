@@ -26,7 +26,7 @@ pub async fn scrape_handler(req: Request, env: Env) -> Result<Response> {
         match found_website {
             Some(website) => {
                 let mut data = Vec::new();
-                data.push(scraper::fetch_website_data(&website).await?);
+                data.push(scraper::fetch_crowd_data(&website).await?);
                 data
             },
             None => {
@@ -36,7 +36,7 @@ pub async fn scrape_handler(req: Request, env: Env) -> Result<Response> {
         }
     } else {
         // Default to Boulderwelt if no URL specified (for backward compatibility)
-        scraper::fetch_boulderwelt_data().await?.data
+        scraper::fetch_all_data().await?.data
     };
     
     let timestamp = Date::now().to_string();
