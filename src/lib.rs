@@ -46,6 +46,12 @@ pub async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 handlers::websites_handler(req, ctx.env).await
             }
         })
+        .get_async("/graph", |req, ctx| {
+            let env = ctx.env.clone();
+            async move {
+                handlers::graph_handler(req, env).await
+            }
+        })
         .run(req, env)
         .await
 }

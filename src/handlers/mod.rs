@@ -6,6 +6,7 @@ use crate::scraper;
 
 // Include the scheduled module
 pub mod scheduled;
+mod graph_template;
 
 /// Handler for the /scrape endpoint
 pub async fn scrape_handler(req: Request, env: Env) -> Result<Response> {
@@ -109,4 +110,29 @@ pub async fn websites_handler(_req: Request, _env: Env) -> Result<Response> {
         "websites": websites
     });
     Response::from_json(&websites_json)
+}
+
+/// Handler for the /graph endpoint - returns HTML with interactive graph visualization
+pub async fn graph_handler(req: Request, _env: Env) -> Result<Response> {
+    // Parse query parameters
+    let url = req.url()?;
+    let query_params: Vec<(String, String)> = url.query_pairs().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+    
+    let website_url = query_params.iter()
+        .find(|(k, _)| k == "url")
+        .map(|(_, v)| v.as_str());
+    
+    let days = query_params.iter()
+        .find(|(k, _)| k == "days")
+        .map(|(_, v)| v.parse::<u32>().unwrap_or(7))
+        .unwrap_or(7);
+    
+    // Get list of available websites for the dropdown
+    let websites = scraper::get_configured_websites();
+
+    // Create HTML with the graph
+    let html = graph_template::generate_html(&websites, website_url, days);
+    
+    // Return the HTML response
+    Response::from_html(&html)
 }
