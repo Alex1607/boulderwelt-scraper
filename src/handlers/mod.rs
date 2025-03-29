@@ -82,7 +82,15 @@ pub async fn history_handler(req: Request, env: Env) -> Result<Response> {
         .map(|(_, v)| v.as_str());
     
     match db::get_crowd_level_history(&env, limit, offset, website_url).await {
-        Ok(data) => Response::from_json(&data),
+        Ok(data) => {
+            // Create response with JSON data
+            let mut response = Response::from_json(&data)?;
+            
+            // Add cache control headers for Cloudflare (10 minutes = 600 seconds)
+            response.headers_mut().set("Cache-Control", "public, max-age=600")?;
+            
+            Ok(response)
+        },
         Err(e) => Response::error(format!("Error retrieving history: {}", e), 500)
     }
 }
