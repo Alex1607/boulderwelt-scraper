@@ -4,6 +4,14 @@ use crate::scraper::WebsiteConfig;
 pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>, days: u32) -> String {
     // Generate website options HTML
     let mut website_options = String::new();
+    
+    // Add an "All Gyms" option at the top
+    website_options.push_str("<option value=\"all\" ");
+    if selected_website.is_none() || selected_website == Some("all") {
+        website_options.push_str("selected");
+    }
+    website_options.push_str(">All Gyms</option>");
+    
     for website in websites {
         let selected = selected_website.is_some_and(|s| s == website.url);
         website_options.push_str(&format!(
@@ -162,7 +170,7 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
         // Chart reference
         let chart = null;
         
-        // Initialize empty chart
+        // Initialize empty chart for a single gym
         function initChart(data, timeUnit = 'hour') {{
             const ctx = document.getElementById('crowdChart').getContext('2d');
             
@@ -241,6 +249,69 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
             }});
         }}
         
+        // Initialize chart for multiple gyms
+        function initMultiChart(datasets, timeUnit = 'hour') {{
+            const ctx = document.getElementById('crowdChart').getContext('2d');
+            
+            if (chart) {{
+                chart.destroy();
+            }}
+            
+            if (datasets.length === 0 || datasets.every(d => d.data.length === 0)) {{
+                document.getElementById('paginationInfo').textContent = 'No valid data points found for the selected criteria';
+                hideLoading();
+                return;
+            }}
+            
+            chart = new Chart(ctx, {{
+                type: 'line',
+                data: {{
+                    datasets: datasets
+                }},
+                options: {{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {{
+                        x: {{
+                            type: 'time',
+                            time: {{
+                                unit: timeUnit,
+                                displayFormats: {{
+                                    hour: 'MMM d, HH:mm',
+                                    day: 'MMM d'
+                                }}
+                            }},
+                            title: {{
+                                display: true,
+                                text: 'Time'
+                            }}
+                        }},
+                        y: {{
+                            min: 0,
+                            max: 100,
+                            title: {{
+                                display: true,
+                                text: 'Crowd Level (%)'
+                            }}
+                        }}
+                    }},
+                    plugins: {{
+                        tooltip: {{
+                            callbacks: {{
+                                title: function(tooltipItems) {{
+                                    const date = new Date(tooltipItems[0].parsed.x);
+                                    return date.toLocaleString();
+                                }},
+                                label: function(context) {{
+                                    return context.dataset.label + ': ' + context.parsed.y + '%';
+                                }}
+                            }}
+                        }}
+                    }}
+                }}
+            }});
+        }}
+        
         // Show loading indicator
         function showLoading() {{
             document.getElementById('loadingOverlay').style.visibility = 'visible';
@@ -257,13 +328,8 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
             info.textContent = 'Showing ' + loaded + ' of ' + total + ' data points';
         }}
         
-        // Load data from the API
-        async function loadData(offset = 0, existingData = []) {{
-            showLoading();
-            
-            const website = document.getElementById('website').value;
-            const days = parseInt(document.getElementById('timeRange').value);
-            
+        // Load data from the API for a single gym
+        async function loadGymData(website, days, offset = 0, existingData = []) {{
             // Calculate a reasonable batch size (1 day worth of data at 10-minute intervals)
             const batchSize = 144; // 6 records per hour * 24 hours
             
@@ -294,33 +360,115 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
                 // Sort data by timestamp (newest first for consistent display)
                 const allData = [...existingData, ...newDataPoints].sort((a, b) => a.x - b.x);
                 
-                // Determine appropriate time unit based on days selected
-                let timeUnit = 'hour';
-                if (days > 7) {{
-                    timeUnit = 'day';
-                }}
-                
-                // Update chart with the right time unit
-                initChart(allData, timeUnit);
-                
-                // Update pagination info
-                updatePaginationInfo(result.pagination.total, allData.length);
-                
-                // Check if we need to load more data based on days selected
+                // Determine if we need to fetch more data
                 const totalPointsNeeded = days * 24 * 6; // days * hours * data points per hour
                 
                 if (allData.length < Math.min(totalPointsNeeded, result.pagination.total) && 
                     result.pagination.has_more) {{
                     // Continue loading more data
-                    await loadData(offset + batchSize, allData);
+                    return await loadGymData(website, days, offset + batchSize, allData);
                 }} else {{
-                    hideLoading();
+                    return {{
+                        data: allData,
+                        total: result.pagination.total
+                    }};
                 }}
             }} catch (error) {{
                 console.error('Error loading data:', error);
-                hideLoading();
-                alert('Error loading data. Please try again.');
+                return {{
+                    data: existingData,
+                    total: existingData.length,
+                    error: error.message
+                }};
             }}
+        }}
+        
+        // Load data from API
+        async function loadData() {{
+            showLoading();
+            
+            const website = document.getElementById('website').value;
+            const days = parseInt(document.getElementById('timeRange').value);
+            
+            // Determine appropriate time unit based on days selected
+            let timeUnit = 'hour';
+            if (days > 7) {{
+                timeUnit = 'day';
+            }}
+            
+            if (website === 'all') {{
+                // Fetch data for all gyms
+                try {{
+                    // First get the list of websites
+                    const websitesResponse = await fetch('/websites');
+                    const websitesData = await websitesResponse.json();
+                    
+                    if (!websitesData.websites || !Array.isArray(websitesData.websites)) {{
+                        throw new Error('Invalid websites data received');
+                    }}
+                    
+                    // Create an array of promises to fetch data for all gyms in parallel
+                    const dataPromises = websitesData.websites.map(site => 
+                        loadGymData(site.url, days)
+                    );
+                    
+                    // Wait for all promises to resolve
+                    const results = await Promise.all(dataPromises);
+                    
+                    // Create datasets for the chart
+                    const datasets = results.map((result, index) => {{
+                        const website = websitesData.websites[index];
+                        // Generate a stable color for this gym
+                        const hue = (index * 137) % 360; // Golden angle to get distinct colors
+                        
+                        return {{
+                            label: website.name,
+                            data: result.data,
+                            borderColor: 'hsl(' + hue + ', 70%, 50%)',
+                            backgroundColor: 'hsla(' + hue + ', 70%, 50%, 0.1)',
+                            borderWidth: 2,
+                            fill: false,
+                            tension: 0.2,
+                            pointRadius: 3,
+                            pointHoverRadius: 6
+                        }};
+                    }});
+                    
+                    // Initialize chart with multiple datasets
+                    initMultiChart(datasets, timeUnit);
+                    
+                    // Update pagination info
+                    const totalDataPoints = results.reduce((sum, result) => sum + result.total, 0);
+                    const loadedDataPoints = results.reduce((sum, result) => sum + result.data.length, 0);
+                    updatePaginationInfo(totalDataPoints, loadedDataPoints);
+                    
+                    hideLoading();
+                }} catch (error) {{
+                    console.error('Error loading data for all gyms:', error);
+                    hideLoading();
+                    alert('Error loading data. Please try again.');
+                }}
+            }} else {{
+                // Fetch data for a single gym
+                try {{
+                    const result = await loadGymData(website, days);
+                    
+                    // Update chart with the data
+                    initChart(result.data, timeUnit);
+                    
+                    // Update pagination info
+                    updatePaginationInfo(result.total, result.data.length);
+                    
+                    hideLoading();
+                }} catch (error) {{
+                    console.error('Error loading data:', error);
+                    hideLoading();
+                    alert('Error loading data. Please try again.');
+                }}
+            }}
+            
+            // Update URL
+            updateURL();
         }}
         
         // Update URL without reloading the page

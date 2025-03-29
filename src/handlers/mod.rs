@@ -122,6 +122,13 @@ pub async fn graph_handler(req: Request, _env: Env) -> Result<Response> {
         .find(|(k, _)| k == "url")
         .map(|(_, v)| v.as_str());
     
+    // Handle the "all" option
+    let normalized_website_url = if website_url == Some("all") {
+        None // None will show all gyms, as modified in the graph_template
+    } else {
+        website_url
+    };
+    
     let days = query_params.iter()
         .find(|(k, _)| k == "days")
         .map(|(_, v)| v.parse::<u32>().unwrap_or(7))
@@ -131,7 +138,7 @@ pub async fn graph_handler(req: Request, _env: Env) -> Result<Response> {
     let websites = scraper::get_configured_websites();
 
     // Create HTML with the graph
-    let html = graph_template::generate_html(&websites, website_url, days);
+    let html = graph_template::generate_html(&websites, normalized_website_url, days);
     
     // Return the HTML response
     Response::from_html(&html)

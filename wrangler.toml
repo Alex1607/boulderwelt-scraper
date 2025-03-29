@@ -12,3 +12,8 @@ crons = ["*/10 * * * *"]
 binding = "DB"
 database_name = "boulderwelt_crowd_levels"
 database_id = "ab5075dc-aa73-46db-a71e-12a91386588c"
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "boulderwelt_crowd_levels"
+database_id = "ab5075dc-aa73-46db-a71e-12a91386588c"

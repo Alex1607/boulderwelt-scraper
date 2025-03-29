@@ -58,6 +58,11 @@ CREATE TABLE IF NOT EXISTS crowd_levels (
     website_name TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Create indexes for performance optimization
+CREATE INDEX IF NOT EXISTS idx_crowd_levels_website_url_timestamp ON crowd_levels(website_url, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_timestamp_desc ON crowd_levels(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_website_url_desc ON crowd_levels(website_url DESC);
 ```
 
 To set up the database:
@@ -81,6 +86,26 @@ To set up the database:
    ```
    
    Where schema.sql contains the CREATE TABLE statement above.
+
+### Database Indexes
+
+The schema includes the following carefully targeted indexes based on the application's query patterns:
+
+1. `idx_crowd_levels_website_url_timestamp` - A composite index that optimizes the two most common query patterns:
+   - Filtering by website_url and ordering by timestamp DESC (used in both `/history` and `/history/latest` endpoints)
+   - This index serves both website-specific historical queries and latest-record lookups
+
+2. `idx_timestamp_desc` - Optimizes queries that fetch records ordered by timestamp regardless of website:
+   - Used when retrieving historical data across all websites 
+   - Supports the global `/history` and `/history/latest` endpoints
+
+These indexes were chosen by analyzing the actual SQL queries in the application code:
+- `SELECT * FROM crowd_levels WHERE website_url = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?`
+- `SELECT * FROM crowd_levels ORDER BY timestamp DESC LIMIT ? OFFSET ?`
+- `SELECT * FROM crowd_levels WHERE website_url = ? ORDER BY timestamp DESC LIMIT 1`
+- `SELECT * FROM crowd_levels ORDER BY timestamp DESC LIMIT 1`
+
+This minimal set of indexes provides optimal performance while avoiding redundant indexes that would increase storage requirements and slow down write operations.
 
 ## How the Pointer Works
 
@@ -158,6 +183,14 @@ To run the Worker locally with a local D1 database:
 ```bash
 wrangler dev --local
 ```
+
+To run the Worker locally but use the production database (for testing with real data):
+
+```bash
+wrangler dev --env dev
+```
+
+This configuration is defined in the `wrangler.toml` file, where the development environment is set to use the same database as production.
 
 ### Deployment
 
