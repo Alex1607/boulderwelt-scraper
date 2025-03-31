@@ -19,8 +19,8 @@ A Cloudflare Worker written in Rust that scrapes bouldering websites every 10 mi
 - **/scrape** - Manually trigger a scrape operation and get results
   - Add `?save=true` to store the result in the database
   - Add `?url=https://example.com` to scrape a specific website from the configured list
-- **/history** - Retrieve historical crowd level data with pagination
-  - Query parameters: `limit` (default: 100) and `offset` (default: 0)
+- **/history** - Retrieve historical crowd level data with timestamp-based pagination
+  - Query parameter `since`: Unix timestamp to retrieve data older than (before) the specified time
   - Add `?url=https://example.com` to filter results for a specific website
 - **/history/latest** - Get the most recent crowd level data from the database
   - Add `?url=https://example.com` to get the latest data for a specific website
@@ -100,8 +100,10 @@ The schema includes the following carefully targeted indexes based on the applic
    - Supports the global `/history` and `/history/latest` endpoints
 
 These indexes were chosen by analyzing the actual SQL queries in the application code:
-- `SELECT * FROM crowd_levels WHERE website_url = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?`
-- `SELECT * FROM crowd_levels ORDER BY timestamp DESC LIMIT ? OFFSET ?`
+- `SELECT * FROM crowd_levels WHERE website_url = ? AND strftime('%s', timestamp) > ? ORDER BY timestamp DESC`
+- `SELECT * FROM crowd_levels WHERE strftime('%s', timestamp) > ? ORDER BY timestamp DESC`
+- `SELECT * FROM crowd_levels WHERE website_url = ? ORDER BY timestamp DESC`
+- `SELECT * FROM crowd_levels ORDER BY timestamp DESC`
 - `SELECT * FROM crowd_levels WHERE website_url = ? ORDER BY timestamp DESC LIMIT 1`
 - `SELECT * FROM crowd_levels ORDER BY timestamp DESC LIMIT 1`
 
@@ -235,8 +237,10 @@ curl https://your-worker-url.workers.dev/history?limit=10&url=https://www.boulde
 
 # List all configured websites
 curl https://your-worker-url.workers.dev/websites
+
+# Get historical data older than a specific timestamp (March 25, 2023)
+curl https://your-worker-url.workers.dev/history?since=1679731200
+
+# Get historical data for a specific website older than a specific timestamp
+curl https://your-worker-url.workers.dev/history?since=1679731200&url=https://www.boulderwelt-muenchen-ost.de/
 ```
-
-## License
-
-MIT 

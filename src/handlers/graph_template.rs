@@ -185,7 +185,6 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
             );
             
             if (validData.length === 0) {{
-                document.getElementById('paginationInfo').textContent = 'No valid data points found for the selected criteria';
                 hideLoading();
                 return;
             }}
@@ -258,7 +257,6 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
             }}
             
             if (datasets.length === 0 || datasets.every(d => d.data.length === 0)) {{
-                document.getElementById('paginationInfo').textContent = 'No valid data points found for the selected criteria';
                 hideLoading();
                 return;
             }}
@@ -322,22 +320,15 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
             document.getElementById('loadingOverlay').style.visibility = 'hidden';
         }}
         
-        // Update pagination info
-        function updatePaginationInfo(total, loaded) {{
-            const info = document.getElementById('paginationInfo');
-            info.textContent = 'Showing ' + loaded + ' of ' + total + ' data points';
-        }}
-        
         // Load data from the API for a single gym
-        async function loadGymData(website, days, offset = 0, existingData = []) {{
-            // Calculate a reasonable batch size (1 day worth of data at 10-minute intervals)
-            const batchSize = 144; // 6 records per hour * 24 hours
-            
+        async function loadGymData(website, days, existingData = []) {{
             try {{
-                // Fetch data from the history endpoint with pagination
-                const url = '/history?url=' + encodeURIComponent(website) + 
-                            '&limit=' + batchSize + 
-                            '&offset=' + offset;
+                // Calculate a Unix timestamp for NOW (we want data before this time)
+                const now = new Date();
+                const currentTimestamp = Math.floor(now.getTime() / 1000);
+                
+                // Fetch data from the history endpoint without filters for debugging
+                const url = '/history?url=' + encodeURIComponent(website);
                 
                 const response = await fetch(url);
                 const result = await response.json();
@@ -349,30 +340,109 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
                 // Process the data into chart format
                 const newDataPoints = result.data.map(record => {{
                     // Parse the timestamp to a proper date format that Chart.js can understand
-                    let timestamp = new Date(record.timestamp);
+                    let timestamp;
+                    
+                    // Try multiple timestamp field possibilities
+                    if (record.created_at) {{
+                        // SQLite timestamp format from D1 database: "2025-03-29 22:50:09"
+                        try {{
+                            // First method: Convert SQLite format to ISO format for JavaScript Date
+                            timestamp = new Date(record.created_at.replace(' ', 'T') + 'Z');
+                            
+                            // Check if the date is valid
+                            if (isNaN(timestamp.getTime())) {{
+                                // Alternative parsing method
+                                const parts = record.created_at.split(/[- :]/);
+                                // parts[0] = year, parts[1] = month (0-based), parts[2] = day, 
+                                // parts[3] = hours, parts[4] = minutes, parts[5] = seconds
+                                if (parts.length >= 6) {{
+                                    timestamp = new Date(
+                                        parseInt(parts[0]), 
+                                        parseInt(parts[1]) - 1, // month is 0-based
+                                        parseInt(parts[2]),
+                                        parseInt(parts[3]),
+                                        parseInt(parts[4]),
+                                        parseInt(parts[5])
+                                    );
+                                }}
+                                
+                                if (isNaN(timestamp.getTime())) {{
+                                    return null;
+                                }}
+                            }}
+                        }} catch (e) {{
+                            return null;
+                        }}
+                    }} else {{
+                        // Try other possible time fields if available
+                        if (record.timestamp) {{
+                            try {{
+                                timestamp = new Date(record.timestamp);
+                                if (isNaN(timestamp.getTime())) {{
+                                    return null;
+                                }}
+                            }} catch (e) {{
+                                return null;
+                            }}
+                        }} else {{
+                            return null;
+                        }}
+                    }}
+                    
+                    // Extract percentage value, trying multiple possible field names
+                    let percentValue = 0;
+                    if (record.percentage !== undefined) {{
+                        percentValue = parseFloat(record.percentage);
+                    }} else if (record.crowd_level_percentage !== undefined) {{
+                        percentValue = parseFloat(record.crowd_level_percentage);
+                    }} else if (record.value !== undefined) {{
+                        percentValue = parseFloat(record.value);
+                    }}
+                    
+                    if (isNaN(percentValue)) {{
+                        return null;
+                    }}
                     
                     return {{
                         x: timestamp,
-                        y: parseFloat(record.percentage) || 0
+                        y: percentValue
                     }};
-                }});
+                }}).filter(point => point !== null);
                 
-                // Sort data by timestamp (newest first for consistent display)
+                // Combine with existing data and sort
                 const allData = [...existingData, ...newDataPoints].sort((a, b) => a.x - b.x);
                 
-                // Determine if we need to fetch more data
-                const totalPointsNeeded = days * 24 * 6; // days * hours * data points per hour
+                // Client-side filtering to limit what's displayed in the chart
+                // We'll calculate a cut-off date based on the selected time range
+                const displayCutoff = new Date();
+                displayCutoff.setDate(displayCutoff.getDate() - days);
                 
-                if (allData.length < Math.min(totalPointsNeeded, result.pagination.total) && 
-                    result.pagination.has_more) {{
-                    // Continue loading more data
-                    return await loadGymData(website, days, offset + batchSize, allData);
-                }} else {{
-                    return {{
-                        data: allData,
-                        total: result.pagination.total
-                    }};
-                }}
+                // Fix future dates by adjusting them to current time
+                const currentYear = new Date().getFullYear();
+                const filteredData = allData.map(point => {{
+                    // Create a copy of the point to avoid modifying the original
+                    const adjustedPoint = {{...point}};
+                    
+                    // If the date is in the future, adjust it to current year
+                    if (adjustedPoint.x.getFullYear() > currentYear) {{
+                        const pointDate = new Date(adjustedPoint.x);
+                        pointDate.setFullYear(currentYear);
+                        adjustedPoint.x = pointDate;
+                    }}
+                    
+                    return adjustedPoint;
+                }});
+                
+                // Only filter by the date range if we want to restrict to a time window
+                const timeFilteredData = days > 0 
+                    ? filteredData.filter(point => point.x >= displayCutoff)
+                    : filteredData;
+                
+                return {{
+                    data: timeFilteredData,
+                    total: newDataPoints.length,
+                    filtered: timeFilteredData.length
+                }};
             }} catch (error) {{
                 console.error('Error loading data:', error);
                 return {{
@@ -437,11 +507,6 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
                     // Initialize chart with multiple datasets
                     initMultiChart(datasets, timeUnit);
                     
-                    // Update pagination info
-                    const totalDataPoints = results.reduce((sum, result) => sum + result.total, 0);
-                    const loadedDataPoints = results.reduce((sum, result) => sum + result.data.length, 0);
-                    updatePaginationInfo(totalDataPoints, loadedDataPoints);
-                    
                     hideLoading();
                 }} catch (error) {{
                     console.error('Error loading data for all gyms:', error);
@@ -455,9 +520,6 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
                     
                     // Update chart with the data
                     initChart(result.data, timeUnit);
-                    
-                    // Update pagination info
-                    updatePaginationInfo(result.total, result.data.length);
                     
                     hideLoading();
                 }} catch (error) {{

@@ -31,7 +31,6 @@ pub async fn scheduled_handler(_event: ScheduledEvent, env: Env, cron: String) -
                 // Store data in D1 database
                 match db::store_crowd_level(
                     &env, 
-                    &timestamp, 
                     &data.crowd_level_percentage,
                     &data.crowd_level_description,
                     website.url.as_str(),
