@@ -323,12 +323,13 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
         // Load data from the API for a single gym
         async function loadGymData(website, days, existingData = []) {{
             try {{
-                // Calculate a Unix timestamp for NOW (we want data before this time)
-                const now = new Date();
-                const currentTimestamp = Math.floor(now.getTime() / 1000);
+                // Calculate the since timestamp based on the requested days
+                const since = new Date();
+                since.setDate(since.getDate() - days);
+                const sinceTimestamp = Math.floor(since.getTime() / 1000);
                 
-                // Fetch data from the history endpoint without filters for debugging
-                const url = '/history?url=' + encodeURIComponent(website);
+                // Fetch data from the history endpoint with the since parameter
+                const url = '/history?url=' + encodeURIComponent(website) + '&since=' + sinceTimestamp;
                 
                 const response = await fetch(url);
                 const result = await response.json();
@@ -412,11 +413,7 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
                 // Combine with existing data and sort
                 const allData = [...existingData, ...newDataPoints].sort((a, b) => a.x - b.x);
                 
-                // Client-side filtering to limit what's displayed in the chart
-                // We'll calculate a cut-off date based on the selected time range
-                const displayCutoff = new Date();
-                displayCutoff.setDate(displayCutoff.getDate() - days);
-                
+                // Client-side filtering is now minimal since server is already filtering
                 // Fix future dates by adjusting them to current time
                 const currentYear = new Date().getFullYear();
                 const filteredData = allData.map(point => {{
@@ -433,15 +430,11 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
                     return adjustedPoint;
                 }});
                 
-                // Only filter by the date range if we want to restrict to a time window
-                const timeFilteredData = days > 0 
-                    ? filteredData.filter(point => point.x >= displayCutoff)
-                    : filteredData;
-                
+                // We don't need to filter by date range anymore since the server does it
                 return {{
-                    data: timeFilteredData,
+                    data: filteredData,
                     total: newDataPoints.length,
-                    filtered: timeFilteredData.length
+                    filtered: filteredData.length
                 }};
             }} catch (error) {{
                 console.error('Error loading data:', error);

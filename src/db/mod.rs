@@ -41,7 +41,7 @@ pub async fn get_crowd_level_history(env: &Env, since_timestamp: Option<i64>, we
     let (stmt, params) = if let Some(url) = website_url {
         match since_timestamp {
             Some(ts) => (
-                "SELECT * FROM crowd_levels WHERE website_url = ? AND created_at < DATETIME(?, 'unixepoch') ORDER BY created_at DESC",
+                "SELECT * FROM crowd_levels WHERE website_url = ? AND created_at > DATETIME(?, 'unixepoch') ORDER BY created_at DESC",
                 vec![url.into(), ts.to_string().into()]
             ),
             None => (
@@ -52,7 +52,7 @@ pub async fn get_crowd_level_history(env: &Env, since_timestamp: Option<i64>, we
     } else {
         match since_timestamp {
             Some(ts) => (
-                "SELECT * FROM crowd_levels WHERE created_at < DATETIME(?, 'unixepoch') ORDER BY created_at DESC",
+                "SELECT * FROM crowd_levels WHERE created_at > DATETIME(?, 'unixepoch') ORDER BY created_at DESC",
                 vec![ts.to_string().into()]
             ),
             None => (

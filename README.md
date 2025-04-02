@@ -60,8 +60,8 @@ CREATE TABLE IF NOT EXISTS crowd_levels (
 );
 
 -- Create indexes for performance optimization
-CREATE INDEX IF NOT EXISTS idx_crowd_levels_website_url_timestamp ON crowd_levels(website_url, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_timestamp_desc ON crowd_levels(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_crowd_levels_website_url_created_at ON crowd_levels(website_url, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_created_at_desc ON crowd_levels(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_website_url_desc ON crowd_levels(website_url DESC);
 ```
 
