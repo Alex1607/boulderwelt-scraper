@@ -18,3 +18,5 @@ Cargo.lock
 # OS-specific files
 .DS_Store
 Thumbs.db
+node_modules/.mf/cf.json
+node_modules/.cache/wrangler/wrangler-account.json

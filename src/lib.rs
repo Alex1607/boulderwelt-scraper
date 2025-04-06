@@ -22,7 +22,7 @@ pub async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     // Create the router for normal HTTP requests
     let router = Router::new();
     router
-        .get("/", |_, _| Response::ok("Boulder Scraper Worker"))
+        .get("/", |_, _| Response::redirect(Url::parse("./graph").unwrap()))
         .get_async("/scrape", |req, ctx| {
             let env = ctx.env.clone();
             async move {
