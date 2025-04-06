@@ -6,7 +6,7 @@ compatibility_date = "2025-03-28"
 command = "cargo install -q worker-build && worker-build --release"
 
 [triggers]
-crons = ["*/10 * * * *"]
+crons = ["*/10 * * * *", "0 0 * * *"]
 
 [[d1_databases]]
 binding = "DB"

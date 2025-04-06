@@ -63,6 +63,22 @@ CREATE TABLE IF NOT EXISTS crowd_levels (
 CREATE INDEX IF NOT EXISTS idx_crowd_levels_website_url_created_at ON crowd_levels(website_url, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_created_at_desc ON crowd_levels(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_website_url_desc ON crowd_levels(website_url DESC);
+
+-- Daily averages table for storing crowd levels by day of week
+CREATE TABLE IF NOT EXISTS daily_averages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    website_url TEXT NOT NULL,
+    website_name TEXT NOT NULL,
+    day_of_week INTEGER NOT NULL, -- 0 = Sunday, 1 = Monday, etc.
+    average_percentage REAL NOT NULL,
+    sample_count INTEGER NOT NULL,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(website_url, day_of_week)
+);
+
+-- Create indexes for the daily_averages table
+CREATE INDEX IF NOT EXISTS idx_daily_averages_website_url ON daily_averages(website_url);
+CREATE INDEX IF NOT EXISTS idx_daily_averages_day_of_week ON daily_averages(day_of_week);
 ```
 
 To set up the database:

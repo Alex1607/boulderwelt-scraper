@@ -7,6 +7,33 @@ use crate::scraper;
 pub async fn scheduled_handler(_event: ScheduledEvent, env: Env, cron: String) -> Result<()> {
     console_log!("Scheduled task triggered at {} with cron '{}'", Date::now().to_string(), cron);
     
+    // Check if this is the daily job (runs at midnight UTC)
+    if cron == "0 0 * * *" {
+        return handle_daily_job(&env).await;
+    }
+    
+    // Otherwise, handle the regular 10-minute scraping job
+    handle_scraping_job(&env).await
+}
+
+/// Handles the daily job to calculate average crowd levels
+async fn handle_daily_job(env: &Env) -> Result<()> {
+    console_log!("Starting time-based averages calculation job");
+    
+    match db::update_time_averages(&env).await {
+        Ok(_) => {
+            console_log!("Successfully updated time-based averages");
+            Ok(())
+        },
+        Err(e) => {
+            console_error!("Error updating time-based averages: {}", e);
+            Err(e)
+        }
+    }
+}
+
+/// Handles the regular scraping job that runs every 10 minutes
+async fn handle_scraping_job(env: &Env) -> Result<()> {
     // Get all configured websites
     let websites = scraper::get_configured_websites();
     let timestamp = Date::now().to_string();
@@ -30,7 +57,7 @@ pub async fn scheduled_handler(_event: ScheduledEvent, env: Env, cron: String) -
                 
                 // Store data in D1 database
                 match db::store_crowd_level(
-                    &env, 
+                    env, 
                     &data.crowd_level_percentage,
                     &data.crowd_level_description,
                     website.url.as_str(),

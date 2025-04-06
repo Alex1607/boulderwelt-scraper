@@ -1,5 +1,6 @@
 use worker::*;
 use serde_json::json;
+use crate::scraper;
 
 /// Stores a crowd level record in the database
 pub async fn store_crowd_level(env: &Env, percentage: &str, description: &str, website_url: &str, website_name: &str) -> Result<()> {
@@ -131,5 +132,145 @@ pub async fn get_latest_crowd_level(env: &Env, website_url: Option<&str>) -> Res
             "raw_percentage": percentage_float,
             "created_at": record["created_at"]
         }
+    }))
+}
+
+/// Calculates and stores time-based averages for crowd levels
+pub async fn update_time_averages(env: &Env) -> Result<()> {
+    // Get the D1 database
+    let d1 = match env.d1("DB") {
+        Ok(db) => db,
+        Err(e) => {
+            console_error!("Error getting D1 database: {}", e);
+            return Err(e);
+        }
+    };
+    
+    // Get all unique website URLs
+    let websites = scraper::get_configured_websites();
+    
+    for website in websites {
+        let website_url = website.url;
+        let website_name = website.name;
+        
+        // Calculate averages for each day and hour combination
+        let avg_stmt = "
+            SELECT 
+                CAST(strftime('%w', created_at) AS INTEGER) as day_of_week,
+                CAST(strftime('%H', created_at) AS INTEGER) as hour,
+                ROUND(AVG(CAST(REPLACE(percentage, '%', '') AS FLOAT)), 2) as avg_percentage,
+                COUNT(*) as sample_count
+            FROM crowd_levels 
+            WHERE website_url = ?
+            GROUP BY day_of_week, hour
+            ORDER BY day_of_week, hour ASC
+        ";
+        
+        let averages = d1.prepare(avg_stmt)
+            .bind(&[website_url.as_str().into()])?
+            .all()
+            .await?
+            .results::<serde_json::Value>()?;
+        
+        // Update time_averages table for each day/hour combination
+        for avg in averages {
+            let day_of_week = avg["day_of_week"].as_i64().unwrap_or(0);
+            let hour = avg["hour"].as_i64().unwrap_or(0);
+            let avg_percentage = avg["avg_percentage"].as_f64().unwrap_or(0.0);
+            let sample_count = avg["sample_count"].as_i64().unwrap_or(0);
+            
+            let upsert_stmt = "
+                INSERT INTO time_averages 
+                    (website_url, website_name, day_of_week, hour, average_percentage, sample_count, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(website_url, day_of_week, hour)
+                DO UPDATE SET 
+                    average_percentage = excluded.average_percentage,
+                    sample_count = excluded.sample_count,
+                    last_updated = CURRENT_TIMESTAMP
+            ";
+            
+            d1.prepare(upsert_stmt)
+                .bind(&[
+                    website_url.as_str().into(),
+                    website_name.as_str().into(),
+                    (day_of_week as i32).into(),
+                    (hour as i32).into(),
+                    avg_percentage.into(),
+                    (sample_count as i32).into(),
+                ])?
+                .run()
+                .await?;
+            
+            console_log!(
+                "Updated average for {} on day {} at hour {}: {}% (samples: {})",
+                website_name, day_of_week, hour, avg_percentage, sample_count
+            );
+        }
+    }
+    
+    Ok(())
+}
+
+/// Retrieves the time-based averages for a specific website
+pub async fn get_time_averages(env: &Env, website_url: Option<&str>) -> Result<serde_json::Value> {
+    // Get the D1 database
+    let d1 = match env.d1("DB") {
+        Ok(db) => db,
+        Err(e) => {
+            console_error!("Error getting D1 database: {}", e);
+            return Err(e);
+        }
+    };
+    
+    let (stmt, params) = if let Some(url) = website_url {
+        (
+            "SELECT * FROM time_averages WHERE website_url = ? ORDER BY day_of_week, hour ASC",
+            vec![url.into()]
+        )
+    } else {
+        (
+            "SELECT * FROM time_averages ORDER BY website_url, day_of_week, hour ASC",
+            vec![]
+        )
+    };
+    
+    let result = d1.prepare(stmt)
+        .bind(&params)?
+        .all()
+        .await?;
+    
+    let records = result.results::<serde_json::Value>()?;
+    
+    // Process the data into a more structured format
+    let mut processed_data = std::collections::HashMap::new();
+    let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    
+    for record in records {
+        let website_name = record["website_name"].as_str().unwrap_or("Unknown");
+        let day_idx = record["day_of_week"].as_i64().unwrap_or(0) as usize;
+        let hour = record["hour"].as_i64().unwrap_or(0);
+        let avg = record["average_percentage"].as_f64().unwrap_or(0.0);
+        let count = record["sample_count"].as_i64().unwrap_or(0);
+        
+        let website_data = processed_data
+            .entry(website_name.to_string())
+            .or_insert_with(|| std::collections::HashMap::new());
+        
+        let day_data = website_data
+            .entry(weekdays[day_idx].to_string())
+            .or_insert_with(|| std::collections::HashMap::new());
+        
+        day_data.insert(
+            hour.to_string(),
+            json!({
+                "average": avg,
+                "samples": count
+            })
+        );
+    }
+    
+    Ok(json!({
+        "data": processed_data
     }))
 } 

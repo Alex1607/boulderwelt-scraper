@@ -4,9 +4,10 @@ use serde_json::json;
 use crate::db;
 use crate::scraper;
 
-// Include the scheduled module
+// Include modules
 pub mod scheduled;
-mod graph_template;
+pub mod graph_template;
+pub mod time_averages_template;
 
 /// Handler for the /scrape endpoint
 pub async fn scrape_handler(req: Request, env: Env) -> Result<Response> {
@@ -144,4 +145,19 @@ pub async fn graph_handler(req: Request, _env: Env) -> Result<Response> {
     
     // Return the HTML response
     Response::from_html(&html)
+}
+
+/// Handler for the time averages view
+pub async fn time_averages_view_handler(_req: Request, env: Env) -> Result<Response> {
+    // Get the time averages data
+    let data = crate::db::get_time_averages(&env, None).await?;
+    
+    // Generate the HTML using the template
+    let html = time_averages_template::get_time_averages_html(data);
+    
+    // Return the response with HTML content type
+    let mut headers = Headers::new();
+    headers.set("Content-Type", "text/html")?;
+    
+    Ok(Response::ok(html)?.with_headers(headers))
 }
