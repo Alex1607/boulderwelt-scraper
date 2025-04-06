@@ -22,7 +22,11 @@ pub async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     // Create the router for normal HTTP requests
     let router = Router::new();
     router
-        .get("/", |_, _| Response::redirect(Url::parse("./graph").unwrap()))
+        .get("/", |req, _| {
+            let url = req.url()?;
+            let base = url.origin().ascii_serialization();
+            Response::redirect(Url::parse(&format!("{}/graph", base)).unwrap())
+        })
         .get_async("/scrape", |req, ctx| {
             let env = ctx.env.clone();
             async move {
@@ -60,7 +64,15 @@ pub async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                     .map(|(_, value)| value.to_string());
                 
                 match db::get_time_averages(&env, website_url.as_deref()).await {
-                    Ok(data) => Response::from_json(&data),
+                    Ok(data) => {
+                        // Create response with JSON data
+                        let mut response = Response::from_json(&data)?;
+                        
+                        // Add cache control headers for 24 hours (86400 seconds)
+                        response.headers_mut().set("Cache-Control", "public, max-age=86400")?;
+                        
+                        Ok(response)
+                    },
                     Err(e) => Response::error(format!("Error fetching time averages: {}", e), 500)
                 }
             }

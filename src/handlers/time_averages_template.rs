@@ -1,7 +1,8 @@
 use serde_json::Value;
 
 pub fn get_time_averages_html(data: Value) -> String {
-    let html = format!(
+    let data_str = serde_json::to_string(&data).unwrap();
+    format!(
         r##"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -24,6 +25,28 @@ pub fn get_time_averages_html(data: Value) -> String {
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }}
+        .nav-bar {{
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }}
+        .nav-link {{
+            text-decoration: none;
+            color: #4CAF50;
+            padding: 5px 10px;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }}
+        .nav-link.active {{
+            background-color: #4CAF50;
+            color: white;
+        }}
+        .nav-link:hover:not(.active) {{
+            background-color: #e8f5e9;
+        }}
         h1 {{
             color: #333;
             text-align: center;
@@ -44,6 +67,36 @@ pub fn get_time_averages_html(data: Value) -> String {
             height: 500px;
             margin-top: 20px;
         }}
+        .loading-overlay {{
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            font-size: 1.2rem;
+            visibility: hidden;
+        }}
+        .chart-wrapper {{
+            position: relative;
+        }}
+        .spinner {{
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4CAF50;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }}
+        @keyframes spin {{
+            0% {{ transform: rotate(0deg); }}
+            100% {{ transform: rotate(360deg); }}
+        }}
         @media (max-width: 768px) {{
             .controls {{
                 flex-direction: column;
@@ -53,6 +106,11 @@ pub fn get_time_averages_html(data: Value) -> String {
 </head>
 <body>
     <div class="container">
+        <div class="nav-bar">
+            <a href="/graph?url=all&days=1&offset=0" class="nav-link">Live Graph</a>
+            <a href="/time-averages-view" class="nav-link active">Time Averages</a>
+        </div>
+        
         <h1>Crowd Level Time Averages</h1>
         
         <div class="controls">
@@ -77,18 +135,115 @@ pub fn get_time_averages_html(data: Value) -> String {
             </div>
         </div>
 
-        <div class="chart-container">
-            <canvas id="averagesChart"></canvas>
+        <div class="chart-wrapper">
+            <div class="loading-overlay" id="loadingOverlay">
+                <div class="spinner"></div>
+                <span>Loading data...</span>
+            </div>
+            <div class="chart-container">
+                <canvas id="averagesChart"></canvas>
+            </div>
         </div>
     </div>
 
     <script>
-        const rawData = {data};
+        const rawData = {0};
         const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
         const displayWeekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
         let chart = null;
+
+        // Color management for consistent gym colors
+        const gymColors = new Map();
+        const baseColors = [
+            '#d92626', // Red
+            '#26d959', // Green
+            '#8b26d9', // Purple
+            '#4BC0C0', // Teal
+            '#FF9F40', // Orange
+            '#EC932F', // Dark Orange
+            '#5DA5DA', // Light Blue
+            '#FAA43A'  // Light Orange
+        ];
+        let nextColorIndex = 0;
+
+        function getGymColor(gym) {{
+            if (!gymColors.has(gym)) {{
+                gymColors.set(gym, baseColors[nextColorIndex % baseColors.length]);
+                nextColorIndex++;
+            }}
+            return gymColors.get(gym);
+        }}
+
+        function adjustColorBrightness(color, factor) {{
+            // Convert hex to RGB
+            const r = parseInt(color.slice(1, 3), 16);
+            const g = parseInt(color.slice(3, 5), 16);
+            const b = parseInt(color.slice(5, 7), 16);
+
+            // Adjust brightness
+            const adjustedR = Math.min(255, Math.max(0, Math.round(r * factor)));
+            const adjustedG = Math.min(255, Math.max(0, Math.round(g * factor)));
+            const adjustedB = Math.min(255, Math.max(0, Math.round(b * factor)));
+
+            // Convert back to hex
+            return '#' + 
+                adjustedR.toString(16).padStart(2, '0') +
+                adjustedG.toString(16).padStart(2, '0') +
+                adjustedB.toString(16).padStart(2, '0');
+        }}
+
+        function getColorForGymAndDay(gym, day) {{
+            const baseColor = getGymColor(gym);
+            const currentSelectedDay = daySelect.value;
+            if (currentSelectedDay === 'all') {{
+                // For "all days" view, use brightness to distinguish days
+                const dayIndex = displayWeekdays.indexOf(day);
+                const brightnessFactor = 0.6 + (dayIndex * 0.1); // Vary from 60% to 130% brightness
+                return adjustColorBrightness(baseColor, brightnessFactor);
+            }}
+            return baseColor;
+        }}
+
+        // Function to get URL parameters
+        function getUrlParams() {{
+            const params = new URLSearchParams(window.location.search);
+            return {{
+                gym: params.get('gym') || 'all',
+                day: params.get('day') || 'all'
+            }};
+        }}
+
+        // Function to update URL parameters
+        function updateUrlParams(gym, day) {{
+            const params = new URLSearchParams(window.location.search);
+            params.set('gym', gym);
+            params.set('day', day);
+            const newUrl = window.location.pathname + '?' + params.toString();
+            window.history.pushState({{}},'', newUrl);
+        }}
+
+        // Get timezone offset in hours
+        const timezoneOffset = new Date().getTimezoneOffset() / 60;
         
-        // Populate gym select
+        // Convert UTC hour to local hour
+        function utcToLocal(hour) {{
+            let localHour = hour - timezoneOffset;
+            if (localHour < 0) localHour += 24;
+            if (localHour >= 24) localHour -= 24;
+            return localHour;
+        }}
+
+        // Show loading indicator
+        function showLoading() {{
+            document.getElementById('loadingOverlay').style.visibility = 'visible';
+        }}
+        
+        // Hide loading indicator
+        function hideLoading() {{
+            document.getElementById('loadingOverlay').style.visibility = 'hidden';
+        }}
+
+        // Populate gym select and set initial values from URL
         const gymSelect = document.getElementById('gymSelect');
         Object.keys(rawData.data).forEach(gym => {{
             const option = document.createElement('option');
@@ -97,11 +252,15 @@ pub fn get_time_averages_html(data: Value) -> String {
             gymSelect.appendChild(option);
         }});
 
+        // Set initial values from URL parameters
+        const urlParams = getUrlParams();
+        gymSelect.value = urlParams.gym;
+        daySelect.value = urlParams.day;
+
         function getChartData() {{
             const selectedGym = gymSelect.value;
             const selectedDay = daySelect.value;
             const datasets = [];
-            const hours = Array.from({{length: 24}}, (_, i) => i);
             
             if (selectedGym === 'all') {{
                 // Show all gyms
@@ -116,14 +275,19 @@ pub fn get_time_averages_html(data: Value) -> String {
                         sortedDays.forEach(([day, dayData]) => {{
                             const data = new Array(24).fill(null);
                             Object.entries(dayData).forEach(([hour, value]) => {{
-                                data[parseInt(hour)] = value.average;
+                                const localHour = utcToLocal(parseInt(hour));
+                                data[localHour] = value.average;
                             }});
                             datasets.push({{
                                 label: `${{gym}} - ${{day}}`,
                                 data: data,
-                                borderColor: getRandomColor(),
+                                borderColor: getColorForGymAndDay(gym, day),
                                 fill: false,
-                                tension: 0.4
+                                tension: 0.4,
+                                segment: {{
+                                    borderColor: ctx => ctx.p0.skip || ctx.p1.skip ? 'transparent' : undefined,
+                                }},
+                                spanGaps: false
                             }});
                         }});
                     }} else {{
@@ -132,14 +296,19 @@ pub fn get_time_averages_html(data: Value) -> String {
                         if (gymData[day]) {{
                             const data = new Array(24).fill(null);
                             Object.entries(gymData[day]).forEach(([hour, value]) => {{
-                                data[parseInt(hour)] = value.average;
+                                const localHour = utcToLocal(parseInt(hour));
+                                data[localHour] = value.average;
                             }});
                             datasets.push({{
                                 label: gym,
                                 data: data,
-                                borderColor: getRandomColor(),
+                                borderColor: getGymColor(gym),
                                 fill: false,
-                                tension: 0.4
+                                tension: 0.4,
+                                segment: {{
+                                    borderColor: ctx => ctx.p0.skip || ctx.p1.skip ? 'transparent' : undefined,
+                                }},
+                                spanGaps: false
                             }});
                         }}
                     }}
@@ -155,17 +324,23 @@ pub fn get_time_averages_html(data: Value) -> String {
                             const dayB = displayWeekdays.indexOf(b[0]);
                             return dayA - dayB;
                         }});
-                        sortedDays.forEach(([day, dayData]) => {{
+                        const baseColor = getGymColor(selectedGym);
+                        sortedDays.forEach(([day, dayData], index) => {{
                             const data = new Array(24).fill(null);
                             Object.entries(dayData).forEach(([hour, value]) => {{
-                                data[parseInt(hour)] = value.average;
+                                const localHour = utcToLocal(parseInt(hour));
+                                data[localHour] = value.average;
                             }});
                             datasets.push({{
                                 label: day,
                                 data: data,
-                                borderColor: getRandomColor(),
+                                borderColor: getColorForGymAndDay(selectedGym, day),
                                 fill: false,
-                                tension: 0.4
+                                tension: 0.4,
+                                segment: {{
+                                    borderColor: ctx => ctx.p0.skip || ctx.p1.skip ? 'transparent' : undefined,
+                                }},
+                                spanGaps: false
                             }});
                         }});
                     }} else {{
@@ -174,42 +349,51 @@ pub fn get_time_averages_html(data: Value) -> String {
                         if (gymData[day]) {{
                             const data = new Array(24).fill(null);
                             Object.entries(gymData[day]).forEach(([hour, value]) => {{
-                                data[parseInt(hour)] = value.average;
+                                const localHour = utcToLocal(parseInt(hour));
+                                data[localHour] = value.average;
                             }});
                             datasets.push({{
                                 label: day,
                                 data: data,
-                                borderColor: getRandomColor(),
+                                borderColor: getGymColor(selectedGym),
                                 fill: false,
-                                tension: 0.4
+                                tension: 0.4,
+                                segment: {{
+                                    borderColor: ctx => ctx.p0.skip || ctx.p1.skip ? 'transparent' : undefined,
+                                }},
+                                spanGaps: false
                             }});
                         }}
                     }}
                 }}
             }}
 
+            // Format hours in 24-hour format with leading zeros
+            const hourLabels = Array.from({{length: 24}}, (_, i) => 
+                i.toString().padStart(2, '0') + ':00'
+            );
+
             return {{
-                labels: hours.map(h => `${{h}}:00`),
+                labels: hourLabels,
                 datasets: datasets
             }};
         }}
 
-        function getRandomColor() {{
-            const letters = '0123456789ABCDEF';
-            let color = '#';
-            for (let i = 0; i < 6; i++) {{
-                color += letters[Math.floor(Math.random() * 16)];
-            }}
-            return color;
-        }}
-
         function updateChart() {{
+            showLoading();
+            
+            // Update URL parameters when chart is updated
+            updateUrlParams(gymSelect.value, daySelect.value);
+            
             if (chart) {{
                 chart.destroy();
             }}
 
             const ctx = document.getElementById('averagesChart').getContext('2d');
             const data = getChartData();
+            
+            // Hide loading as soon as data is ready
+            hideLoading();
 
             chart = new Chart(ctx, {{
                 type: 'line',
@@ -230,6 +414,10 @@ pub fn get_time_averages_html(data: Value) -> String {
                             title: {{
                                 display: true,
                                 text: 'Hour of Day'
+                            }},
+                            ticks: {{
+                                maxRotation: 0,
+                                autoSkip: false
                             }}
                         }}
                     }},
@@ -260,8 +448,6 @@ pub fn get_time_averages_html(data: Value) -> String {
     </script>
 </body>
 </html>"##,
-        data = serde_json::to_string(&data).unwrap()
-    );
-    
-    html
+        data_str
+    )
 } 

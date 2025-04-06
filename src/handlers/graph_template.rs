@@ -58,6 +58,28 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }}
+        .nav-bar {{
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }}
+        .nav-link {{
+            text-decoration: none;
+            color: #4CAF50;
+            padding: 5px 10px;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }}
+        .nav-link.active {{
+            background-color: #4CAF50;
+            color: white;
+        }}
+        .nav-link:hover:not(.active) {{
+            background-color: #e8f5e9;
+        }}
         h1 {{
             color: #333;
             text-align: center;
@@ -132,6 +154,11 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
 </head>
 <body>
     <div class="container">
+        <div class="nav-bar">
+            <a href="/graph?url=all&days=1&offset=0" class="nav-link active">Live Graph</a>
+            <a href="/time-averages-view" class="nav-link">Time Averages</a>
+        </div>
+        
         <h1>Climbing Gym Crowd Levels</h1>
         
         <div class="controls">
@@ -150,7 +177,7 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
             <div>
                 <label for="showOffset">
                     <input type="checkbox" id="showOffset" onchange="loadData()">
-                    Compare with 7 days ago
+                    Compare with last week
                 </label>
             </div>
             <button onclick="loadData()">Update Graph</button>
