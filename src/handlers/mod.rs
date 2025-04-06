@@ -67,11 +67,15 @@ pub async fn history_handler(req: Request, env: Env) -> Result<Response> {
         .find(|(k, _)| k == "since")
         .and_then(|(_, v)| v.parse::<i64>().ok());
     
+    let until_timestamp = query_params.iter()
+        .find(|(k, _)| k == "until")
+        .and_then(|(_, v)| v.parse::<i64>().ok());
+    
     let website_url = query_params.iter()
         .find(|(k, _)| k == "url")
         .map(|(_, v)| v.as_str());
     
-    match db::get_crowd_level_history(&env, since_timestamp, website_url).await {
+    match db::get_crowd_level_history(&env, since_timestamp, until_timestamp, website_url).await {
         Ok(data) => {
             // Create response with JSON data
             let mut response = Response::from_json(&data)?;

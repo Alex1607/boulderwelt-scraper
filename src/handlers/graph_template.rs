@@ -147,6 +147,12 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
                     {time_options_html}
                 </select>
             </div>
+            <div>
+                <label for="showOffset">
+                    <input type="checkbox" id="showOffset" onchange="loadData()">
+                    Compare with 7 days ago
+                </label>
+            </div>
             <button onclick="loadData()">Update Graph</button>
         </div>
         
@@ -321,15 +327,25 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
         }}
         
         // Load data from the API for a single gym
-        async function loadGymData(website, days, existingData = []) {{
+        async function loadGymData(website, days, offset = 0) {{
             try {{
                 // Calculate the since timestamp based on the requested days
                 const since = new Date();
-                since.setDate(since.getDate() - days);
+                since.setDate(since.getDate() - days - offset);
                 const sinceTimestamp = Math.floor(since.getTime() / 1000);
                 
+                // Calculate the until timestamp for offset data
+                const until = new Date();
+                if (offset > 0) {{
+                    until.setDate(until.getDate() - offset);
+                }}
+                const untilTimestamp = Math.floor(until.getTime() / 1000);
+                
                 // Fetch data from the history endpoint with the since parameter
-                const url = '/history?url=' + encodeURIComponent(website) + '&since=' + sinceTimestamp;
+                let url = '/history?url=' + encodeURIComponent(website) + '&since=' + sinceTimestamp;
+                if (offset > 0) {{
+                    url += '&until=' + untilTimestamp;
+                }}
                 
                 const response = await fetch(url);
                 const result = await response.json();
@@ -411,7 +427,7 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
                 }}).filter(point => point !== null);
                 
                 // Combine with existing data and sort
-                const allData = [...existingData, ...newDataPoints].sort((a, b) => a.x - b.x);
+                const allData = [...newDataPoints].sort((a, b) => a.x - b.x);
                 
                 // Client-side filtering is now minimal since server is already filtering
                 // Fix future dates by adjusting them to current time
@@ -439,8 +455,8 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
             }} catch (error) {{
                 console.error('Error loading data:', error);
                 return {{
-                    data: existingData,
-                    total: existingData.length,
+                    data: [],
+                    total: 0,
                     error: error.message
                 }};
             }}
@@ -452,6 +468,7 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
             
             const website = document.getElementById('website').value;
             const days = parseInt(document.getElementById('timeRange').value);
+            const showOffset = document.getElementById('showOffset').checked;
             
             // Determine appropriate time unit based on days selected
             let timeUnit = 'hour';
@@ -471,22 +488,26 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
                     }}
                     
                     // Create an array of promises to fetch data for all gyms in parallel
-                    const dataPromises = websitesData.websites.map(site => 
-                        loadGymData(site.url, days)
-                    );
+                    const dataPromises = websitesData.websites.map(site => {{
+                        const promises = [loadGymData(site.url, days)];
+                        if (showOffset) {{
+                            promises.push(loadGymData(site.url, days, 7));
+                        }}
+                        return Promise.all(promises);
+                    }});
                     
                     // Wait for all promises to resolve
                     const results = await Promise.all(dataPromises);
                     
                     // Create datasets for the chart
-                    const datasets = results.map((result, index) => {{
+                    const datasets = results.flatMap((result, index) => {{
                         const website = websitesData.websites[index];
                         // Generate a stable color for this gym
                         const hue = (index * 137) % 360; // Golden angle to get distinct colors
                         
-                        return {{
+                        const currentDataset = {{
                             label: website.name,
-                            data: result.data,
+                            data: result[0].data,
                             borderColor: 'hsl(' + hue + ', 70%, 50%)',
                             backgroundColor: 'hsla(' + hue + ', 70%, 50%, 0.1)',
                             borderWidth: 2,
@@ -495,6 +516,35 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
                             pointRadius: 3,
                             pointHoverRadius: 6
                         }};
+
+                        if (showOffset && result[1]) {{
+                            // Adjust timestamps for offset data to align with current data
+                            const offsetData = result[1].data.map(point => {{
+                                const adjustedDate = new Date(point.x);
+                                adjustedDate.setDate(adjustedDate.getDate() + 7);
+                                return {{
+                                    x: adjustedDate,
+                                    y: point.y
+                                }};
+                            }});
+
+                            const offsetDataset = {{
+                                label: website.name + ' (7 days ago)',
+                                data: offsetData,
+                                borderColor: 'hsl(' + hue + ', 70%, 25%)',
+                                backgroundColor: 'hsla(' + hue + ', 70%, 25%, 0.1)',
+                                borderWidth: 2,
+                                borderDash: [5, 5],
+                                fill: false,
+                                tension: 0.2,
+                                pointRadius: 2,
+                                pointHoverRadius: 5
+                            }};
+
+                            return [currentDataset, offsetDataset];
+                        }}
+
+                        return [currentDataset];
                     }});
                     
                     // Initialize chart with multiple datasets
@@ -509,10 +559,51 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
             }} else {{
                 // Fetch data for a single gym
                 try {{
-                    const result = await loadGymData(website, days);
-                    
-                    // Update chart with the data
-                    initChart(result.data, timeUnit);
+                    const currentData = await loadGymData(website, days);
+                    let datasets = [];
+
+                    if (showOffset) {{
+                        const offsetData = await loadGymData(website, days, 7);
+                        
+                        // Adjust timestamps for offset data to align with current data
+                        const adjustedOffsetData = offsetData.data.map(point => {{
+                            const adjustedDate = new Date(point.x);
+                            adjustedDate.setDate(adjustedDate.getDate() + 7);
+                            return {{
+                                x: adjustedDate,
+                                y: point.y
+                            }};
+                        }});
+
+                        datasets = [
+                            {{
+                                label: 'Current',
+                                data: currentData.data,
+                                borderColor: '#4CAF50',
+                                backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                                borderWidth: 2,
+                                fill: true,
+                                tension: 0.2,
+                                pointRadius: 3,
+                                pointHoverRadius: 6
+                            }},
+                            {{
+                                label: '7 days ago',
+                                data: adjustedOffsetData,
+                                borderColor: '#2E7D32',
+                                backgroundColor: 'rgba(46, 125, 50, 0.1)',
+                                borderWidth: 2,
+                                borderDash: [5, 5],
+                                fill: true,
+                                tension: 0.2,
+                                pointRadius: 2,
+                                pointHoverRadius: 5
+                            }}
+                        ];
+                        initMultiChart(datasets, timeUnit);
+                    }} else {{
+                        initChart(currentData.data, timeUnit);
+                    }}
                     
                     hideLoading();
                 }} catch (error) {{
@@ -530,10 +621,12 @@ pub fn generate_html(websites: &[WebsiteConfig], selected_website: Option<&str>,
         function updateURL() {{
             const website = document.getElementById('website').value;
             const days = document.getElementById('timeRange').value;
+            const showOffset = document.getElementById('showOffset').checked;
             
             const url = new URL(window.location);
             url.searchParams.set('url', website);
             url.searchParams.set('days', days);
+            url.searchParams.set('offset', showOffset ? '1' : '0');
             window.history.pushState({{}},'', url);
         }}
         

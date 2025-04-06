@@ -27,7 +27,7 @@ pub async fn store_crowd_level(env: &Env, percentage: &str, description: &str, w
 }
 
 /// Retrieves historical crowd level data with pagination
-pub async fn get_crowd_level_history(env: &Env, since_timestamp: Option<i64>, website_url: Option<&str>) -> Result<serde_json::Value> {
+pub async fn get_crowd_level_history(env: &Env, since_timestamp: Option<i64>, until_timestamp: Option<i64>, website_url: Option<&str>) -> Result<serde_json::Value> {
     // Get the D1 database
     let d1 = match env.d1("DB") {
         Ok(db) => db,
@@ -37,32 +37,34 @@ pub async fn get_crowd_level_history(env: &Env, since_timestamp: Option<i64>, we
         }
     };
     
-    // Query the history based on timestamp, filtering by website_url if provided
-    let (stmt, params) = if let Some(url) = website_url {
-        match since_timestamp {
-            Some(ts) => (
-                "SELECT * FROM crowd_levels WHERE website_url = ? AND created_at > DATETIME(?, 'unixepoch') ORDER BY created_at DESC",
-                vec![url.into(), ts.to_string().into()]
-            ),
-            None => (
-                "SELECT * FROM crowd_levels WHERE website_url = ? ORDER BY created_at DESC",
-                vec![url.into()]
-            )
-        }
+    // Build the query based on parameters
+    let mut conditions = Vec::new();
+    let mut params = Vec::new();
+    
+    if let Some(url) = website_url {
+        conditions.push("website_url = ?");
+        params.push(url.into());
+    }
+    
+    if let Some(ts) = since_timestamp {
+        conditions.push("created_at > DATETIME(?, 'unixepoch')");
+        params.push(ts.to_string().into());
+    }
+    
+    if let Some(ts) = until_timestamp {
+        conditions.push("created_at < DATETIME(?, 'unixepoch')");
+        params.push(ts.to_string().into());
+    }
+    
+    let where_clause = if conditions.is_empty() {
+        String::new()
     } else {
-        match since_timestamp {
-            Some(ts) => (
-                "SELECT * FROM crowd_levels WHERE created_at > DATETIME(?, 'unixepoch') ORDER BY created_at DESC",
-                vec![ts.to_string().into()]
-            ),
-            None => (
-                "SELECT * FROM crowd_levels ORDER BY created_at DESC",
-                vec![]
-            )
-        }
+        format!("WHERE {}", conditions.join(" AND "))
     };
     
-    let prepared_stmt = d1.prepare(stmt);
+    let stmt = format!("SELECT * FROM crowd_levels {} ORDER BY created_at DESC", where_clause);
+    
+    let prepared_stmt = d1.prepare(&stmt);
     
     let result = prepared_stmt
         .bind(&params)?
