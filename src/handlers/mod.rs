@@ -134,8 +134,8 @@ pub async fn graph_handler(req: Request, _env: Env) -> Result<Response> {
     
     let days = query_params.iter()
         .find(|(k, _)| k == "days")
-        .map(|(_, v)| v.parse::<u32>().unwrap_or(7))
-        .unwrap_or(7);
+        .map(|(_, v)| v.parse::<u32>().unwrap_or(3))
+        .unwrap_or(3);
     
     // Get list of available websites for the dropdown
     let websites = scraper::get_configured_websites();

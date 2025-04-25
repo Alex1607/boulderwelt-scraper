@@ -10,6 +10,7 @@ pub fn get_time_averages_html(data: Value) -> String {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Crowd Level Time Averages</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
     <style>
         body {{
             font-family: Arial, sans-serif;
@@ -58,10 +59,19 @@ pub fn get_time_averages_html(data: Value) -> String {
             margin-bottom: 20px;
             gap: 10px;
         }}
-        select {{
+        select, button {{
             padding: 8px 12px;
             border-radius: 4px;
             border: 1px solid #ddd;
+        }}
+        button {{
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }}
+        button:hover {{
+            background-color: #45a049;
         }}
         .chart-container {{
             height: 500px;
@@ -110,9 +120,9 @@ pub fn get_time_averages_html(data: Value) -> String {
             <a href="/graph?url=all&days=1&offset=0" class="nav-link">Live Graph</a>
             <a href="/time-averages-view" class="nav-link active">Time Averages</a>
         </div>
-        
+
         <h1>Crowd Level Time Averages</h1>
-        
+
         <div class="controls">
             <div>
                 <label for="gymSelect">Gym Location:</label>
@@ -133,6 +143,10 @@ pub fn get_time_averages_html(data: Value) -> String {
                     <option value="0">Sunday</option>
                 </select>
             </div>
+            <button id="resetZoom" onclick="resetZoom()" style="display: none;">Reset Zoom</button>
+        </div>
+        <div style="text-align: center; margin-top: 5px; font-size: 0.9rem; color: #666;">
+            <p>Tip: Click and drag on the graph to zoom into a specific area</p>
         </div>
 
         <div class="chart-wrapper">
@@ -224,7 +238,7 @@ pub fn get_time_averages_html(data: Value) -> String {
 
         // Get timezone offset in hours
         const timezoneOffset = new Date().getTimezoneOffset() / 60;
-        
+
         // Convert UTC hour to local hour
         function utcToLocal(hour) {{
             let localHour = hour - timezoneOffset;
@@ -237,7 +251,7 @@ pub fn get_time_averages_html(data: Value) -> String {
         function showLoading() {{
             document.getElementById('loadingOverlay').style.visibility = 'visible';
         }}
-        
+
         // Hide loading indicator
         function hideLoading() {{
             document.getElementById('loadingOverlay').style.visibility = 'hidden';
@@ -261,7 +275,7 @@ pub fn get_time_averages_html(data: Value) -> String {
             const selectedGym = gymSelect.value;
             const selectedDay = daySelect.value;
             const datasets = [];
-            
+
             if (selectedGym === 'all') {{
                 // Show all gyms
                 Object.entries(rawData.data).forEach(([gym, gymData]) => {{
@@ -381,17 +395,20 @@ pub fn get_time_averages_html(data: Value) -> String {
 
         function updateChart() {{
             showLoading();
-            
+
+            // Hide reset zoom button when loading new data
+            document.getElementById('resetZoom').style.display = 'none';
+
             // Update URL parameters when chart is updated
             updateUrlParams(gymSelect.value, daySelect.value);
-            
+
             if (chart) {{
                 chart.destroy();
             }}
 
             const ctx = document.getElementById('averagesChart').getContext('2d');
             const data = getChartData();
-            
+
             // Hide loading as soon as data is ready
             hideLoading();
 
@@ -437,10 +454,38 @@ pub fn get_time_averages_html(data: Value) -> String {
                                     return `${{label}}: ${{value.toFixed(1)}}%`;
                                 }}
                             }}
+                        }},
+                        zoom: {{
+                            zoom: {{
+                                wheel: {{
+                                    enabled: true,
+                                }},
+                                pinch: {{
+                                    enabled: true
+                                }},
+                                drag: {{
+                                    enabled: true,
+                                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                                    borderColor: 'rgba(76, 175, 80, 0.5)',
+                                    borderWidth: 1
+                                }},
+                                mode: 'xy',
+                                onZoomComplete: function() {{
+                                    document.getElementById('resetZoom').style.display = 'inline-block';
+                                }}
+                            }}
                         }}
                     }}
                 }}
             }});
+        }}
+
+        // Reset zoom to original scale
+        function resetZoom() {{
+            if (chart) {{
+                chart.resetZoom();
+                document.getElementById('resetZoom').style.display = 'none';
+            }}
         }}
 
         // Initial chart
