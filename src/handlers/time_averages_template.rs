@@ -223,7 +223,7 @@ pub fn get_time_averages_html(data: Value) -> String {
             const params = new URLSearchParams(window.location.search);
             return {{
                 gym: params.get('gym') || 'all',
-                day: params.get('day') || 'all'
+                day: params.get('day') || null
             }};
         }}
 
@@ -269,7 +269,14 @@ pub fn get_time_averages_html(data: Value) -> String {
         // Set initial values from URL parameters
         const urlParams = getUrlParams();
         gymSelect.value = urlParams.gym;
-        daySelect.value = urlParams.day;
+
+        // If no day is specified in URL, use current day of week
+        if (urlParams.day === null) {{
+            const today = new Date().getDay().toString();
+            daySelect.value = today;
+        }} else {{
+            daySelect.value = urlParams.day;
+        }}
 
         function getChartData() {{
             const selectedGym = gymSelect.value;
