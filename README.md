@@ -125,21 +125,6 @@ These indexes were chosen by analyzing the actual SQL queries in the application
 
 This minimal set of indexes provides optimal performance while avoiding redundant indexes that would increase storage requirements and slow down write operations.
 
-## How the Pointer Works
-
-The websites use an image element with a margin-left CSS property to indicate the current crowd level:
-
-```html
-<img width="21" height="15" src="https://www.boulderwelt-muenchen-ost.de/wp-content/plugins/cxo-crowd-level//resources/img/pointer.png" style="margin-left: 38%;" data-lazy-src="https://www.boulderwelt-muenchen-ost.de/wp-content/plugins/cxo-crowd-level//resources/img/pointer.png" data-ll-status="loaded" class="entered lazyloaded">
-```
-
-The `margin-left` percentage value represents how busy the gym is:
-- 0-20%: Very low
-- 20-40%: Low
-- 40-60%: Moderate
-- 60-80%: High
-- 80-100%: Very high
-
 ## Adding New Websites
 
 To add new websites that use the same pointer.png pattern, edit the `get_configured_websites` function in `src/scraper/mod.rs`:
